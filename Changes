@@ -1,4 +1,7 @@
 # Change file for Config::Reload
 
+0.15 2013-08-15
+    Refactored and extended documentation
+
 0.1  2013-07-16
     First public version at CPAN

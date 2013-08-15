@@ -1,7 +1,7 @@
 package Config::Reload;
 #ABSTRACT: Load config files, reload when files changed.
 
-use v5.14.1;
+use v5.10;
 
 use Config::ZOMG '0.00200';
 
@@ -10,18 +10,21 @@ use Sub::Quote 'quote_sub';
 use Digest::MD5 qw(md5_hex);
 use Try::Tiny;
 
+use parent 'Exporter';
+our @EXPORT_OK = qw(files_hash);
+
 =head1 SYNOPSIS
 
     my $config = Config::Reload->new(
         wait => 60,     # check at most every minute (default)
-        ...             # passed to Config::ZOMG
+        ...             # passed to Config::ZOMG, e.g. file => $filename
     );
 
-    my $config_hash = $config->load;
+    my $config = $config->load;
 
     sleep(60);
 
-    $config_hash = $config->load;   # reloaded
+    $config = $config->load;   # reloaded
 
 =head1 DESCRIPTION
 
@@ -31,28 +34,33 @@ and last modification time).
 
 This package is highly experimental and not fully covered by unit tests!
 
-=method new( %arguments )
-
-In addition to L<Config::ZOMG>, one can specify a minimum time of delay between
-checks with argument 'delay'.
-
 =cut
 
+has wait    => (
+    is      => 'rw',
+    default => quote_sub q{ 60 },
+);
+
+
+has checked => ( is => 'rw' );
+has error   => ( is => 'rw' );
+
+sub found {
+    @{ $_[0]->_found };
+}
+
+has _md5    => ( is => 'rw' ); # caches $self->md5($self->found)
+has _zomg   => ( is => 'rw', handles => [qw(find)] );
+has _found  => ( is => 'rw', default => quote_sub q{ [ ] } );
+
 sub BUILD {
-    my $self = shift;
-    my $given = shift;
+    my ($self, $given) = @_;
 
     # don't pass to Config::ZOMG
-    delete $given->{$_} for qw(wait error checked zomg);
+    delete $given->{$_} for qw(wait error checked);
 
     $self->_zomg( Config::ZOMG->new($given) );
 }
-
-=head2 load
-
-Get the configuration hash, possibly (re)loading configuration files.
-
-=cut
 
 sub load {
     my $self = shift;
@@ -60,8 +68,8 @@ sub load {
 
     if ($zomg->loaded) {
         if (time < $self->checked + $self->wait) {
-            return ( $self->error ? { } : $zomg->load );
-        } elsif ($self->md5 ne $self->_md5( $zomg->find )) {
+            return ( defined $self->error ? { } : $zomg->load );
+        } elsif ($self->_md5 ne files_hash( $zomg->find )) {
             $zomg->loaded(0);
         }
     }
@@ -74,71 +82,79 @@ sub load {
             $zomg->load;
         }
         # save files to prevent Config::ZOMG::Source::Loader::read
+        # this may change in a later version of Config::ZOMG
         $self->_found([ $zomg->found ]);
-        $self->md5( $self->_md5( $self->found ) );
+        $self->_md5( files_hash( $self->found ) );
     } catch {
         $self->error($_);
-        $self->md5( $self->_md5() );
-        $self->_found([ ]);
+        $self->_found( [] );
+        $self->_md5( files_hash() );
         return { };
     };
 
-    return ( $self->error ? { } : $zomg->load );
+    return ( defined $self->error ? { } : $zomg->load );
 }
+
+=method new
+
+Returns a new C<Config::Reload> object.  All arguments but C<wait>, C<error>
+and C<checked> are passed to the constructor of L<Config::ZOMG>.
+
+=method load
+
+Get the configuration, possibly (re)loading configuration files. Always returns
+a hash reference, on error this C< { } >.
 
 =method wait
 
-Number of seconds to wait between checking. Set to 60 by default.
-
-=cut
-
-has 'wait'  => (
-    is => 'rw',
-    default => quote_sub q{ 60 },
-);
+Get or set the number of seconds to wait between checking. Set to 60 (one
+minute) by default.
 
 =method checked
 
-Timestamp of last time the files were loaded or checked.
-
-=cut
-
-has 'checked' => ( is => 'rw' );
-
-=method md5
-
-MD5 hash value based on files that have been found, their modification times
-and sizes.
-
-=cut
-
-has 'md5' => ( is => 'rw' );
-
-=method error
-
-An error message, if loading failed.
-
-=cut
-
-has 'error' => ( is => 'rw' );
+Returns a timestamp of last time files had been loaded or checked.
 
 =method found
 
-A list of files found. In contrast to L<Config::ZOMG>, calling this method
-never triggers a load.
+Returns a list of files that configuration has been loaded from.  In contrast
+to L<Config::ZOMG>, calling this method never triggers loading files, so an
+empty list is returned before method C<load> has been called for the first
+time.
+
+=method find
+
+Returns a list of files that configuration will be loaded from on next check.
+Files will be reloaded only if C<files_hash> value of of C<find> differs from
+the value of C<found>:
+
+    use Config::Reload qw(files_hash);
+
+    files_hash( $config->find ) ne files_hash( $config->found )
+
+=method error
+
+Returns an error message if loading failed. As long as an error is set, the
+C<load> method returns an empty hash reference until the next attempt to reload
+(typically the time span defind with C<wait>).  One can manually unset the
+error with C<< $c->error(undef) >> to force reloading.
+
+=head1 FUNCTIONS
+
+=head2 files_hash( @files )
+
+Returns a hexadecimal MD5 value based on names, -sizes and modification times
+of a list of files. Internally used to compare C<find> and C<found>.
+
+This function can be exported on request.
 
 =cut
 
-sub found {
-    @{ $_[0]->_found };
-}
-
-has '_found' => ( is => 'rw', default => quote_sub q{ [ ] } );
-has '_zomg' => ( is => 'rw', handles => [qw(find)] );
-
-sub _md5 {
-    my $self = shift;
+sub files_hash {
     md5_hex( map { my @s = stat($_); ($_, $s[9], $s[7]) } sort @_ );
 }
+
+=encoding utf8
+
+=cut
 
 1;

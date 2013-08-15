@@ -1,7 +1,10 @@
-use v5.14.1;
+use v5.10;
 use warnings;
 use Test::More;
 
-use_ok('Config::Reload');
+use Config::Reload qw(files_hash);
+
+no strict 'refs';
+ok defined &{'files_hash'}, 'export files_hash on request';
 
 done_testing;
