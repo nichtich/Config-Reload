@@ -2,6 +2,7 @@ package Config::Reload;
 #ABSTRACT: Load config files, reload when files changed.
 
 use v5.10;
+use strict;
 
 use Config::ZOMG '0.00200';
 
@@ -43,6 +44,7 @@ has wait    => (
 
 
 has checked => ( is => 'rw' );
+has loaded  => ( is => 'rw' );
 has error   => ( is => 'rw' );
 
 sub found {
@@ -52,6 +54,7 @@ sub found {
 has _md5    => ( is => 'rw' ); # caches $self->md5($self->found)
 has _zomg   => ( is => 'rw', handles => [qw(find)] );
 has _found  => ( is => 'rw', default => quote_sub q{ [ ] } );
+has _config => ( is => 'rw' );
 
 sub BUILD {
     my ($self, $given) = @_;
@@ -66,33 +69,38 @@ sub load {
     my $self = shift;
     my $zomg = $self->_zomg;
 
-    if ($zomg->loaded) {
+    if ($self->_config) {
         if (time < $self->checked + $self->wait) {
-            return ( defined $self->error ? { } : $zomg->load );
-        } elsif ($self->_md5 ne files_hash( $zomg->find )) {
-            $zomg->loaded(0);
+            return $self->_config;
+        }
+        if ($self->_md5 eq files_hash( $zomg->find )) {
+            $self->checked(time);
+            return $self->_config;
+        } else {
+            $self->_config(undef);
         }
     }
 
     $self->checked(time);
 
     try {
-        if (!$zomg->loaded) {
-            $self->error(undef);
-            $zomg->load;
-        }
+        $self->error(undef);
+        $self->_config( $zomg->reload ); # may die on error
+        $self->loaded(time);
+
         # save files to prevent Config::ZOMG::Source::Loader::read
         # this may change in a later version of Config::ZOMG
         $self->_found([ $zomg->found ]);
         $self->_md5( files_hash( $self->found ) );
     } catch {
         $self->error($_);
+        $self->loaded(undef);
         $self->_found( [] );
         $self->_md5( files_hash() );
-        return { };
+        $self->_config( { } );
     };
-
-    return ( defined $self->error ? { } : $zomg->load );
+    
+    return $self->_config;
 }
 
 =method new
@@ -112,7 +120,12 @@ minute) by default.
 
 =method checked
 
-Returns a timestamp of last time files had been loaded or checked.
+Returns a timestamp of last time files had been checked.
+
+=method loaded
+
+Returns a timestamp of last time files had been loaded. Returns C<undef> before
+first loading and on error.
 
 =method found
 
