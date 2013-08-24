@@ -5,8 +5,8 @@ use File::Temp qw(tempfile);
 use File::Basename qw(dirname);
 use Config::Reload;
 
-my ($fh,$file) = tempfile( SUFFIX => '.json' );
-say $fh '{ "hello": "world!" }';
+my ($fh,$file) = tempfile( SUFFIX => '.pl' );
+say $fh '{ hello => "world!" }';
 close $fh;
 
 my $c = Config::Reload->new( file => $file );
@@ -16,7 +16,7 @@ is_deeply $c->load, { hello => "world!" }, 'loaded';
 ok $c->loaded, 'loaded';
 
 open $fh, '>', $file;
-say $fh '{ "hi": "world!" }';
+say $fh '{ hi => "world!" }';
 close $fh;
 
 is_deeply $c->load, { hello => "world!" }, 'not loaded again';
