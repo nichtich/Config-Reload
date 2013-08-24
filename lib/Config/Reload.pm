@@ -4,7 +4,7 @@ package Config::Reload;
 use v5.10;
 use strict;
 
-use Config::ZOMG '0.00200';
+use Config::ZOMG '1.000000';
 
 use Moo;
 use Sub::Quote 'quote_sub';
@@ -47,13 +47,8 @@ has checked => ( is => 'rw' );
 has loaded  => ( is => 'rw' );
 has error   => ( is => 'rw' );
 
-sub found {
-    @{ $_[0]->_found };
-}
-
 has _md5    => ( is => 'rw' ); # caches $self->md5($self->found)
-has _zomg   => ( is => 'rw', handles => [qw(find)] );
-has _found  => ( is => 'rw', default => quote_sub q{ [ ] } );
+has _zomg   => ( is => 'rw', handles => [qw(find found)] );
 has _config => ( is => 'rw' );
 
 sub BUILD {
@@ -87,19 +82,14 @@ sub load {
         $self->error(undef);
         $self->_config( $zomg->reload ); # may die on error
         $self->loaded(time);
-
-        # save files to prevent Config::ZOMG::Source::Loader::read
-        # this may change in a later version of Config::ZOMG
-        $self->_found([ $zomg->found ]);
         $self->_md5( files_hash( $self->found ) );
     } catch {
         $self->error($_);
         $self->loaded(undef);
-        $self->_found( [] );
         $self->_md5( files_hash() );
         $self->_config( { } );
     };
-    
+
     return $self->_config;
 }
 
@@ -129,10 +119,7 @@ first loading and on error.
 
 =method found
 
-Returns a list of files that configuration has been loaded from.  In contrast
-to L<Config::ZOMG>, calling this method never triggers loading files, so an
-empty list is returned before method C<load> has been called for the first
-time.
+Returns a list of files that configuration has been loaded from.
 
 =method find
 
