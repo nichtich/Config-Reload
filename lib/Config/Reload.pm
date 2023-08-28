@@ -4,7 +4,7 @@ package Config::Reload;
 use v5.10;
 use strict;
 
-use Config::ZOMG '1.000000';
+use Config::ZOMG 1.000000;
 
 use Moo;
 use Sub::Quote 'quote_sub';
